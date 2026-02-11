@@ -25,6 +25,8 @@ library(FLSRTMB)  # to estimate SR parameters and add estimation uncertainty
 
 source("utilities_fsquared.R")
 
+mkdir("model")
+
 # LOAD stock assessment results, 'run' is output FLStock
 # if you have your own assessment load it, for simplicity rename the output
 # to "run", but can use other name, just make sure all calls to "run" 
