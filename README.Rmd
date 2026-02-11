@@ -12,7 +12,7 @@
 
 # Installation
 
-Packages required to run this analysis can be inmstalled from the relevant repositories by executing
+Packages required to run this analysis can be installed from the relevant repositories by executing
 
 ```{r, eval=FALSE}
 install.deps(repos=c(FLR="https://flr.r-universe.dev",
@@ -29,7 +29,7 @@ check.software()
 
 ## Progress
 
-The `mse` package makes use of `progressr`, if available, to report on the progress of simulation runs. Standard priogress bars are used by default as defined in the local `.Rprofile` file. To switch them off please run
+The `mse` package makes use of `progressr`, if available, to report on the progress of simulation runs. Standard progress bars are used by default as defined in the local `.Rprofile` file. To switch them off please run
 
 ```r
 handlers(global=FALSE)
