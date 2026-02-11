@@ -1,0 +1,405 @@
+# `Fsquared`: FLR toolset for calculating ICES’ F-based reference points
+
+# Authors
+
+- Iago Mosqueira (WMR) <iago.mosqueira@wur.nl>
+- John Trochta (IMR) <john.tyler.trochta@hi.no>
+- Ernesto Jardim (IPMA) <ernesto.jardim@ipma.pt>
+- Arni Magnusson (SPC) <arnim@spc.int>
+- Max Cardinale (SLU) <massimiliano.cardinale@slu.se>
+- Dorleta Garcia (ICES) <dorleta.garcia@ices.dk>
+- Colin Millar (ICES) <colin.millar@ices.dk>
+
+# Installation
+
+``` r
+install.packages(c("FLCore", "mse", "msemodules", "mseviz", "FLSRTMB",
+  "ggplotFL", "FLasher", "TAF"),
+  repos=c(FLR="https://flr.r-universe.dev", CRAN="https://cloud.r-project.org")) 
+```
+
+``` r
+handlers(global=TRUE)
+```
+
+- Run first with it = cores, so that the call to mps() runs in parallel
+
+# Introduction
+
+This tutorial demonstrates the setting up and running of the `Fsquared`
+simulation modeling toolset for calculating ICES fishing mortality
+reference points (Fp05 and Fmsy) using the
+[mse](https://flr-project.org/mse) package. This toolset comprises R
+scripts structured according to the TAF system. The code within these R
+scripts was adapted from the toolset developed for ICES WKREBUILD2
+**\[ADD REF\]**. A tutorial is available for the WKREBUILD2 toolset that
+describes setting up, running, and summarising results of simulations
+([here](https://htmlpreview.github.io/?https://github.com/ices-tools-prod/WKREBUILD_toolset/blob/main/tutorial.html)).
+Thus, we refer users to the [WKREBUILD2
+tutorial](https://htmlpreview.github.io/?https://github.com/ices-tools-prod/WKREBUILD_toolset/blob/main/tutorial.html)
+for further details not covered in this tutorial.
+
+# Workflow
+
+At the heart of this toolset is a shortcut MSE framework that introduces
+some level of estimation error from the management procedure stock
+assessment model and, uses a short-term forecast to bridge the data and
+management lags, as it is commonly done for asdvice in ICES.
+
+To setup and run the shortcut MSE, the user would generally take these
+steps:
+
+1.  Set simulation parameters such as the number of iterations and
+    projection years (`config.R`)
+2.  Configure and/or condition parameters of the operating model (OM)
+    and the management procedure (MP) (`frps.R`).
+3.  Run closed loop simulations of the standard ICES advice rule
+    parameterized by the MSY Btrigger \[REFERENCE\] over a range of
+    Ftarget values (`frps.R`).
+4.  Derive equilibrium distributions of stock quantities (spawning
+    biomass, catches, etc.) for each Ftarget and calculate ICES’ Fp05
+    and Fmsy reference points (`output.R`).
+
+# Default assumptions of tool
+
+- Operating model (om)
+  - Future weights, maturity, and exploitation pattern is the average of
+    the most recent \## years **(CHECK)**
+- Observation error model (oem)
+  - No explicit OEM (i.e. perfect observations of spawning biomass)
+- Management procedure (mp)
+  - Estimation model (est)
+    - If ‘estimating’ SB, CV = 0.10 (random normal of log(SB))
+    - **MAYBE** If ‘estimating’ numbers-at-age (N), CV = \## (random
+      normal of log(N))
+  - Harvest control rule (hcr)
+    - Input ‘estimated’ SB from preceding year (i.e. data_lag=1) into
+      ICES advice rule to obtain target F in the next year
+      (i.e. management_lag=1)
+    - Target F is equivalent to fbar
+  - Implementation system (isys)
+    - **TODO: Year range for mean recruitment, other default assumptions
+      in STF**
+- Implementation error model (IEM)
+  - No explicit IEM (i.e. realized catch in OM matches advice)
+
+# Prerequisites
+
+- R (\>= 4.2 recommended)
+- FLR packages: `mse`, `FLSRTMB` (and their dependencies)
+- Local helper scripts: `utilities.R`
+- Example assessment results/objects: `boot/data/sol274.rda`
+
+# Example: North Sea plaice assessed with SAM
+
+Below are condensed code snippets extracted from `frps.R`.
+
+## Specifying simulation parameters
+
+``` r
+library(mse)    # Contains MSE functionality (shortcut or full-feedback)
+library(FLSRTMB)# SR estimation and uncertainty simulation
+
+# Local helpers (adjust paths as needed)
+source("config.R")
+source("utilities.R")
+
+# Load stock assessment results (toy example, AAP model with increased F)
+# 'run' should be an FLStock-like or assessment object used downstream.
+load("boot/data/sol274.rda")
+
+# Key simulation parameters
+stkname <- "sol.27.4"
+srmodels <- c("segreg")          
+iy <- 2022                       
+dy <- iy - 1                     
+fy <- 2055                       
+it <- 5                          
+set.seed(987) # Fixed for reproducibility during initial testing
+conditioning_ny <- 5             
+bcv_sa <- 0.10                   
+fg_mp <- seq(0, 1.5, length=51) 
+recyrs_mp <- -2                 
+```
+
+What these settings mean: - `srmodels` specifies the functional forms to
+estimate and bootstrap from in OM.  
+- `iy`, `dy`, `fy` define the initial year, last year of observations,
+and final year of the MSE projection period.  
+- `it` controls how many stochastic replicates are run in the OM. -
+`conditioning_ny` specifies the number of years from the recent to
+condition **CLARIFY**.  
+- `bcv_sa` the CV of estimation uncertainty on SB in the shortcut
+estimator.  
+- `fg_mp` is the grid of candidate F targets you will test.  
+- `recyrs_mp` is the range of years (from current assessement year) to
+take geometric mean of recruitment; used in short-term forecast within
+`isys`.
+
+## Conditioning stock-recruitment
+
+The default approach is estimate SR parameters via bootstrapping and
+select the model with the largest log-likelihood via `FLSRTMB`:
+
+``` r
+spryrs <- ac(2018:2022) # years to compute mean SPR0
+
+# Estimate SR parameters by bootstrapping and model selection
+srpars <- bootstrapSR(
+  run,
+  iters = it,
+  spr0  = mean(spr0y(run)[, spryrs]),
+  models = srmodels
+)
+
+# Generate future recruitment deviances (autocorrelated lognormal)
+srdevs <- rlnormar1(
+  sdlog = srpars$sigmaR,
+  rho = srpars$rho,
+  years = seq(dy, fy),
+  bias.correct = FALSE
+)               
+```
+
+**TODO: Double check this is accurate and specify further** Key
+functions (briefly):  
+- `spr0y(run)`: computes spawning-per-recruit (SPR0) by year from the
+assessment object.  
+- `bootstrapSR(...)`: fits specified SR models across bootstrap
+resamples, returning chosen parameters (e.g., s, sigmaR, rho).  
+- `rlnormar1(...)`: simulates autocorrelated lognormal deviates with
+AR(1) structure given `sdlog` and `rho`.
+
+Notes:  
+- $\sigma_R$ controls recruitment variability; $\rho$ controls temporal
+autocorrelation (AR(1)).  
+- `spr0` is used by certain SR models for scaling.
+
+## Creating the OM object (`FLom` class)
+
+Key functions:  
+- `FLom(...)`: creates an Operating Model object combining
+stock-specific biology (stock weights, maturity, etc.), reference
+points, SR model(s) and parameterss, and recruitment deviances.  
+- `propagate(run, it)`: replicates the `run` object for `it` number of
+iterations.  
+- `fwdWindow(...)`: extends the year range of the `om` object to the end
+of projection period (year `fy`), carrying forward recent historical
+averages of **\##**.
+
+``` r
+# 'refpts' should contain reference points such as Fmsy and Btrigger
+# If 'refpts' is defined in your environment (from your assessment or SS3), use it here.
+# In many workflows, refpts() are derived from a fitted SR and SPR analyses.
+
+# Build the OM
+om <- FLom(
+  stock = propagate(run, it),  # replicate stock object across iterations
+  refpts = refpts,             # must include Fmsy, Btrigger (etc.)
+  model = "mixedsrr",          # SR model type used in the OM
+  params = srpars,             # SR parameters
+  deviances = srdevs,          # recruitment deviances
+  name = stkname
+)
+
+# Extend OM into the future, conditioning on recent years
+om <- fwdWindow(om, end = fy, nsq = conditioning_ny)
+```
+
+## Specifying Management Procedure (MP)
+
+The MP is consists of three models (specified as modules within the
+`mpCtrl` class:  
+- Estimation (`est`): a shortcut stock assessment (with SSB
+uncertainty). - HCR (`hcr`): hockey-stick rule mapping SSB to target F
+with a trigger (Btrigger) and minimum floor.  
+- Implementation system (`isys`): TAC setting via a short-term forecast.
+
+``` r
+# General MSE arguments: timing and lags
+mseargs <- list(
+  iy = iy, fy = fy,      # start and end of projections
+  data_lag = 1,          # 1-year lag between observation and availability
+  management_lag = 1,    # 1-year lag from advice to implementation
+  frq = 1                # annual frequency
+)
+
+# Shortcut estimator uncertainty (SSB deviances)
+sdevs <- shortcut_devs(om, SSBcv = bcv_sa)
+
+# Define the ICES-style advice rule
+arule <- mpCtrl(list(
+  # Estimation: shortcut SA with SSB deviances
+  est = mseCtrl(
+    method = shortcut.sa,
+    args = list(SSBdevs = sdevs$SSB)
+  ),
+  # HCR: hockey-stick maps ssb -> fbar with lim, trigger, target, min
+  hcr = mseCtrl(
+    method = hockeystick.hcr,
+    args = list(
+      lim = 0,
+      trigger = refpts(om)$Btrigger,
+      target = refpts(om)$Fmsy,
+      min = 0,
+      metric = "ssb",
+      output = "fbar"
+    )
+  ),
+  # Implementation system: TAC based on F
+  isys = mseCtrl(
+    method = tac.is,
+    args = list(recyrs = recyrs_mp)
+  )
+))
+```
+
+Key functions:  
+- `shortcut_devs(om, SSBcv)`: simulates estimation uncertainty in SSB
+(and optionally F).  
+- `mpCtrl(list(...))`: bundles MP modules needed for the shortcut MSE:
+estimation (est), HCR (hcr), and implementation system (isys) models.  
+- `mseCtrl(method=..., args=list(...))`: defines one module of the MP by
+defining a method (function) and arguments to this method.  
+- `shortcut.sa`: internal function of `mse` that multiplies estimation
+errors to SSB from the OM to obtain ‘estimated’ SSB.  
+- `hockeystick.hcr`: internal function of `mse` that implements the ICES
+standard hockey-stick HCR that maps SSB to an F target. The ICES
+standard HCR sets F target to Fmsy if SSB ≥ trigger, and linearly
+reduces F target down to lim if SSB \< trigger.  
+- `tac.is`: internal function of `mse` that calculates a catch advice
+(TAC) by projecting F target with ‘estimated’ SSB in the current year
+and short-term recruitment assumptions.
+
+## Running the F grid
+
+We define and run simulations of a grid of candidate F targets and run
+the MSE for each value.
+
+``` r
+# Candidate F targets to test
+fg <- list(target = fg_mp)
+
+# Run MSEs over the F target grid
+fgrid <- mps(
+  om,
+  ctrl = arule,
+  args = mseargs,
+  hcr = fg,
+  names = paste0("F", fg_mp)
+)
+
+# 'fgrid' is typically a list-like object with outputs per F target
+```
+
+Key functions:  
+- `mps(om, ctrl, args, hcr, names)`: runs multiple MSEs varying
+specified HCR parameters; here we vary the target F.
+
+## Inspecting results (quick checks)
+
+Below are minimal examples to extract and visualize a few quantities.
+Adapt as needed to your object classes.
+
+``` r
+# Example: list available runs
+names(fgrid)
+
+# Example: pick one F run and inspect time series
+# TODO
+```
+
+## Troubleshooting and tips
+
+- Missing reference points: ensure `refpts` includes at least `Fmsy` and
+  `Btrigger`. If not, derive them from your assessment or SR fit (e.g.,
+  MSY-based analysis).  
+- SR model choice: if `segreg` is unsuitable, try other SR models
+  supported in your workflow (e.g., Beverton–Holt) and adjust
+  `srmodels`.  
+- Reproducibility: keep `set.seed()` fixed while debugging; vary it when
+  exploring uncertainty.
+
+# Example: Black Spott Seabream (27.8c9a) assessed with SS3
+
+**TODO: Highlight sex structure**
+
+# Key decision points and advice
+
+## Running your first simulations
+
+The use of the `mse` package involves calls to various functions and
+generations of large objects. While many iterations are ultimately
+required to derive stable performance metric (e.g. 1000), users should
+use few simulations (e.g. \<5) when first configuring these scripts and
+starting simulation runs. Additionally, parallelization is set up by
+default in the `config.R` to further reduce the total run time as such:
+
+``` r
+cores <- 5
+
+if(os.linux()) {
+  plan(multicore, workers=cores)
+} else {
+  plan(multisession, workers=cores)
+}
+```
+
+When first running simulations, the user may also turn off
+parallelization (i.e. run sequentially) in order to make debugging
+potential errors easier. To turn off parallelization, use the following
+code (e.g. inside `config.R` or executing directly in your console if
+you are running code line by line:)
+
+``` r
+plan(sequential)
+```
+
+## Conditioning recruitment in the OM
+
+The user has a couple options to parameterizing stock-recruitment
+relationships and process error uncertainty. The first option is to use
+model fitting and simulation functionality of the `FLSRTMB` within
+`FLR`. Details on model fitting with `FLSRTMB` can be found in the
+[WKREBUILD2
+tutorial](https://htmlpreview.github.io/?https://github.com/ices-tools-prod/WKREBUILD_toolset/blob/main/tutorial.html).
+To resample stock-recruitment parameters and future recruitment deviates
+(parametric bootstrap), use:
+
+``` r
+# BOOTSTRAP and SELECT model by largest logLik **
+srpars <- bootstrapSR(run, iters=it, spr0=mean(spr0y(run)[,spryrs]), models=srmodels)
+
+# GENERATE future deviances: lognormal autocorrelated **
+srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy), bias.correct=FALSE)
+```
+
+**TODO: Finish writing out the following**  
+**- with bootstrapSR(), method=“best” is default and select based only
+on likelihood(?) Discuss other options?**  
+**- with rlnormar1(), make sure to address bias.correct argument**  
+**- Describe option to input your own stock-recruitment parameters and
+errors**
+
+## Obtaining or calculating estimation error for shortcut assessment
+
+**- Describe how to extract SB error (CV, but also bias) from SAM**  
+**- Describe how to extract SB error (CV, but also bias) from SS3**  
+**- Describe how to extract errors in N-at-age (e.g. variance-covariance
+matrix)**
+
+## (Sensitivity) Testing multiple OMs
+
+**- Should develop set of OMs, each of which has its own Fp05 and Fmsy
+computed**
+
+# Asking for help
+
+**UPDATE**  
+To report bugs or make suggestions regarding this example, please use
+the **TODO**. If the problem is with code in any one particular package,
+please use the corresponding issue page for its repository at the [FLR
+github project](https://github.com/flr/).
+
+This document is licensed under a Creative Commons
+Attribution-ShareAlike 4.0 International Public License

@@ -1,46 +1,17 @@
----
-title: "FLR toolset for calculating ICES' F-based reference points"
-author: "Iago Mosqueira (WMR) <iago.mosqueira@wur.nl>,   
-John Trochta (IMR) <john.tyler.trochta@hi.no>,  
-Ernesto Jardim (IPMA) <ernesto.jardim@ipma.pt>,  
-Arni Magnusson (SPC) <arnim@spc.int>,  
-Max Cardinale (SLU) <massimiliano.cardinale@slu.se>,  
-Dorleta Garcia (ICES) <dorleta.garcia@ices.dk>,  
-Colin Millar (ICES) <colin.millar@ices.dk>"  
-date: "`r format(Sys.time(), '%d %B %Y')`"
-output: 
-  tint::tintHtml:
-    toc: true
-    #theme: united
-    #toc_float: true
-    #highlight: pygments
-license: Creative Commons Attribution-ShareAlike 4.0 International Public License
----
 
-```{r knitr, include = FALSE}
-library(knitr)
-opts_chunk$set(
-  eval=FALSE,
-  message=FALSE,
-  warning=FALSE,
-  collapse = FALSE,
-  comment = "#>"
-  #size = "LARGE"
-  #,width=300
-  #,out.width="110%"
-)
-```
+#   `Fsquared`: FLR toolset for calculating ICES' F-based reference points
 
-**TODO: Describe/document creation of initial input objects, e.g. bootstrap/data/sol274.rda**
+# Authors
 
-**TODO: Clearly point out what users should change for their stocks**
-
-**Objective: Users should be able to start setting up, simulating, and computing reference points from this tutorial**
-
-
+- Iago Mosqueira (WMR) <iago.mosqueira@wur.nl>
+- John Trochta (IMR) <john.tyler.trochta@hi.no>
+- Ernesto Jardim (IPMA) <ernesto.jardim@ipma.pt>
+- Arni Magnusson (SPC) <arnim@spc.int>
+- Max Cardinale (SLU) <massimiliano.cardinale@slu.se>
+- Dorleta Garcia (ICES) <dorleta.garcia@ices.dk>
+- Colin Millar (ICES) <colin.millar@ices.dk>
 
 # Installation
-
 
 ```r
 install.packages(c("FLCore", "mse", "msemodules", "mseviz", "FLSRTMB",
@@ -48,19 +19,11 @@ install.packages(c("FLCore", "mse", "msemodules", "mseviz", "FLSRTMB",
   repos=c(FLR="https://flr.r-universe.dev", CRAN="https://cloud.r-project.org")) 
 ```
 
-
 ```r
 handlers(global=TRUE)
 ```
 
-
-
 - Run first with it = cores, so that the call to mps() runs in parallel
-
-
-```r
-draft.software(c('FLCore', 'FLasher', 'mse', 'FLSRTMB', 'msemodules'), file=TRUE)
-```
 
 # Introduction
 
@@ -105,7 +68,8 @@ To setup and run the shortcut MSE, the user would generally take these steps:
 Below are condensed code snippets extracted from `frps.R`. 
 
 ## Specifying simulation parameters
-```{r setup, message=FALSE, warning=FALSE}
+
+```{r setup, message=FALSE, warning=FALSE, eval=FALSE, eval=FALSE}
 library(mse)    # Contains MSE functionality (shortcut or full-feedback)
 library(FLSRTMB)# SR estimation and uncertainty simulation
 
@@ -144,7 +108,7 @@ What these settings mean:
 ## Conditioning stock-recruitment
 The default approach is estimate SR parameters via bootstrapping and select the model with the largest log-likelihood via `FLSRTMB`: 
 
-```{r sr_conditioning, message=FALSE, warning=FALSE}
+```{r sr_conditioning, message=FALSE, warning=FALSE, eval=FALSE}
 spryrs <- ac(2018:2022) # years to compute mean SPR0
 
 # Estimate SR parameters by bootstrapping and model selection
@@ -181,7 +145,7 @@ Key functions:
 - `propagate(run, it)`: replicates the `run` object for `it` number of iterations.  
 - `fwdWindow(...)`: extends the year range of the `om` object to the end of projection period (year `fy`), carrying forward recent historical averages of **##**.  
 
-```{r om-build}
+```{r om-build, eval=FALSE}
 # 'refpts' should contain reference points such as Fmsy and Btrigger
 # If 'refpts' is defined in your environment (from your assessment or SS3), use it here.
 # In many workflows, refpts() are derived from a fitted SR and SPR analyses.
@@ -207,7 +171,7 @@ The MP is consists of three models (specified as modules within the `mpCtrl` cla
 - HCR (`hcr`): hockey-stick rule mapping SSB to target F with a trigger (Btrigger) and minimum floor.  
 - Implementation system (`isys`): TAC setting via a short-term forecast.  
 
-```{r mp-setup}
+```{r mp-setup, eval=FALSE}
 # General MSE arguments: timing and lags
 mseargs <- list(
   iy = iy, fy = fy,      # start and end of projections
@@ -258,7 +222,7 @@ Key functions:
 ## Running the F grid
 We define and run simulations of a grid of candidate F targets and run the MSE for each value.  
 
-```{r run-mps}
+```{r run-mps, eval=FALSE}
 # Candidate F targets to test
 fg <- list(target = fg_mp)
 
@@ -282,7 +246,7 @@ Key functions:
 
 Below are minimal examples to extract and visualize a few quantities. Adapt as needed to your object classes.  
 
-```{r inspect, message=FALSE, warning=FALSE}
+```{r inspect, message=FALSE, warning=FALSE, eval=FALSE}
 # Example: list available runs
 names(fgrid)
 
@@ -356,3 +320,7 @@ srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy), bias
 # Asking for help
 **UPDATE**  
  To report bugs or make suggestions regarding this example, please use the **TODO**. If the problem is with code in any one particular package, please use the corresponding issue page for its repository at the [FLR github project](https://github.com/flr/).
+
+
+
+This document is licensed under a Creative Commons Attribution-ShareAlike 4.0 International Public License
