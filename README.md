@@ -1,3 +1,4 @@
+
 # `Fsquared`: FLR toolset for calculating ICES’ F-based reference points
 
 # Authors
@@ -12,17 +13,33 @@
 
 # Installation
 
-``` r
-install.packages(c("FLCore", "mse", "msemodules", "mseviz", "FLSRTMB",
-  "ggplotFL", "FLasher", "TAF"),
-  repos=c(FLR="https://flr.r-universe.dev", CRAN="https://cloud.r-project.org")) 
-```
+Packages required to run this analysis can be installed from the
+relevant repositories by executing
 
 ``` r
-handlers(global=TRUE)
+install.deps(repos=c(FLR="https://flr.r-universe.dev",
+  CRAN="https://cloud.r-project.org"))
 ```
 
-- Run first with it = cores, so that the call to mps() runs in parallel
+The minimum versions needed are stored in the `boot/SOFTWARE.bib` file.
+A check can be carried out on whether the versions available in the
+system are up to date to those by calling
+
+``` r
+library(TAF)
+check.software()
+```
+
+## Progress
+
+The `mse` package makes use of `progressr`, if available, to report on
+the progress of simulation runs. Standard progress bars are used by
+default as defined in the local `.Rprofile` file. To switch them off
+please run
+
+``` r
+handlers(global=FALSE)
+```
 
 # Introduction
 
@@ -44,21 +61,23 @@ for further details not covered in this tutorial.
 At the heart of this toolset is a shortcut MSE framework that introduces
 some level of estimation error from the management procedure stock
 assessment model and, uses a short-term forecast to bridge the data and
-management lags, as it is commonly done for asdvice in ICES.
+management lags, as it is commonly done for advice in ICES.
 
-To setup and run the shortcut MSE, the user would generally take these
+`model_fsquared.R` sets up and runs the shortcut MSE, generally in these
 steps:
 
 1.  Set simulation parameters such as the number of iterations and
-    projection years (`config.R`)
+    projection years.
 2.  Configure and/or condition parameters of the operating model (OM)
-    and the management procedure (MP) (`frps.R`).
+    and the management procedure (MP).
 3.  Run closed loop simulations of the standard ICES advice rule
     parameterized by the MSY Btrigger \[REFERENCE\] over a range of
-    Ftarget values (`frps.R`).
+    Ftarget values.
 4.  Derive equilibrium distributions of stock quantities (spawning
     biomass, catches, etc.) for each Ftarget and calculate ICES’ Fp05
-    and Fmsy reference points (`output.R`).
+    and Fmsy reference points.
+
+- Run first with it = cores, so that the call to mps() runs in parallel
 
 # Default assumptions of tool
 
@@ -69,9 +88,7 @@ steps:
   - No explicit OEM (i.e. perfect observations of spawning biomass)
 - Management procedure (mp)
   - Estimation model (est)
-    - If ‘estimating’ SB, CV = 0.10 (random normal of log(SB))
-    - **MAYBE** If ‘estimating’ numbers-at-age (N), CV = \## (random
-      normal of log(N))
+    - Default CV of ‘estimated’ SB is 0.10 (random normal of log(SB))
   - Harvest control rule (hcr)
     - Input ‘estimated’ SB from preceding year (i.e. data_lag=1) into
       ICES advice rule to obtain target F in the next year
@@ -80,14 +97,16 @@ steps:
   - Implementation system (isys)
     - **TODO: Year range for mean recruitment, other default assumptions
       in STF**
+    - Autocorrelated normal error on target F with Fcv=0.212 and
+      Fphi=0.423 (Defaults from EQSIM) **TODO: Double this is correct**
 - Implementation error model (IEM)
-  - No explicit IEM (i.e. realized catch in OM matches advice)
+  - No explicit IEM
 
 # Prerequisites
 
 - R (\>= 4.2 recommended)
-- FLR packages: `mse`, `FLSRTMB` (and their dependencies)
-- Local helper scripts: `utilities.R`
+- FLR packages: `mse`, `msemodules`, `FLSRTMB` (and their dependencies)
+- Local helper scripts: `utilities_fsquared.R`
 - Example assessment results/objects: `boot/data/sol274.rda`
 
 # Example: North Sea plaice assessed with SAM
@@ -101,8 +120,7 @@ library(mse)    # Contains MSE functionality (shortcut or full-feedback)
 library(FLSRTMB)# SR estimation and uncertainty simulation
 
 # Local helpers (adjust paths as needed)
-source("config.R")
-source("utilities.R")
+source("utilities_fsquared.R")
 
 # Load stock assessment results (toy example, AAP model with increased F)
 # 'run' should be an FLStock-like or assessment object used downstream.
@@ -127,12 +145,12 @@ estimate and bootstrap from in OM.
 - `iy`, `dy`, `fy` define the initial year, last year of observations,
 and final year of the MSE projection period.  
 - `it` controls how many stochastic replicates are run in the OM. -
-`conditioning_ny` specifies the number of years from the recent to
-condition **CLARIFY**.  
+`conditioning_ny` specifies number of years backward from `dy` to use
+for conditioning future weights, maturity, and exploitation patterns.  
 - `bcv_sa` the CV of estimation uncertainty on SB in the shortcut
 estimator.  
 - `fg_mp` is the grid of candidate F targets you will test.  
-- `recyrs_mp` is the range of years (from current assessement year) to
+- `recyrs_mp` is the range of years (from current assessment year) to
 take geometric mean of recruitment; used in short-term forecast within
 `isys`.
 
@@ -322,18 +340,31 @@ names(fgrid)
 
 # Example: Black Spott Seabream (27.8c9a) assessed with SS3
 
-**TODO: Highlight sex structure**
+<https://github.com/akatan999/MSErefpts/blob/main/MSE/ShortCut_HCR_MSE_sbr_ss3om.1000.Rmd>
 
-# Key decision points and advice
+# Operational guidance
 
-## Running your first simulations
+## First run few iterations
 
-The use of the `mse` package involves calls to various functions and
-generations of large objects. While many iterations are ultimately
-required to derive stable performance metric (e.g. 1000), users should
-use few simulations (e.g. \<5) when first configuring these scripts and
-starting simulation runs. Additionally, parallelization is set up by
-default in the `config.R` to further reduce the total run time as such:
+Fsquared can take a long time to run (scale of hours). While many
+iterations are ultimately required to derive stable performance metrics
+(e.g. 1000), we suggest to run the script with a small number of iters
+and a small search grid, e.g. set the grid’s length to be a multiple of
+the number of cores. Make sure the script is running and the results
+seem right; don’t worry too much if results are a bit off on this phase.
+
+Once simulations run without error, then increase your number of iters
+to a minimum of 250 (1000 is better, but be aware of the computing
+capacity you have) and the length of the grid to 50, or whichever value
+comes closer to a multiple of the number of cores you are using for
+efficient parallelization.
+
+## Consider turning off parallelization when running first few iters
+
+Parallelization is the process of distributing computing tasks across
+multiple processors (also called cores) on your PC. The number of cores
+over which iterations distributed is set up by default in the
+`model_fsquared.R` at 5, as such:
 
 ``` r
 cores <- 5
@@ -345,15 +376,41 @@ if(os.linux()) {
 }
 ```
 
-When first running simulations, the user may also turn off
-parallelization (i.e. run sequentially) in order to make debugging
-potential errors easier. To turn off parallelization, use the following
-code (e.g. inside `config.R` or executing directly in your console if
-you are running code line by line:)
+When first running simulations, you may also turn off parallelization
+(i.e. run sequentially) in order to make debugging potential errors
+easier. To turn off parallelization, use the following code (e.g. inside
+`config.R` or executing directly in your console if you are running code
+line by line):
 
 ``` r
 plan(sequential)
 ```
+
+## Values to use for `bias.correct` argument in `rlnormar1()` function
+
+This argument turns on and off the standard log-normal bias correction
+that subtracts $0.5\sigma^2$ from the log of a (normal) mean. You need
+to set `bias.correct=FALSE` if your stock-recruitment parameters are
+estimated without the log-normal bias correction. *The stock-recruitment
+parameters estimated within `bootstrapSR` are NOT estimated with the
+log-normal bias correction (so use `rlnormar1(bias.correct=FALSE)`).*
+Additionally, earlier versions of `FLCore` from which `rlnormar1()` is
+sourced had the default argument `bias.correct=TRUE`. Thus, you should
+always explicitly set the `bias.correct`. You can always check the
+default argument for `bias.correct` in your locally installed version of
+`FLCore` by typing `View(rlnormar1)` and seeing what is
+`bias.correct=...` in the function definition.
+
+A more technical note about the `bootstrapSR()` function, which
+internally calls `srrTMB()`. The function `srrTMB()` also has a
+`bias.correct` argument (with default `bias.correct=TRUE`), *but this is
+NOT the log-normal bias correction*. This argument turns on a bias
+correction that is 1) for a uniform logistic prior (on Blim/B0) and 2)
+only applied when `model=segreg` and/or `model=segregDa`. So if you are
+working directly with `srrTMB()` and use `bias.correct=TRUE` (or
+`bias.correct=FALSE`), you still call `rlnormar1(bias.correct=FALSE)` if
+simulating new recruitment from the estimated parameters output by
+`srrTMB()` (e.g. `sigmaR` and `rho`).
 
 ## Conditioning recruitment in the OM
 
@@ -377,7 +434,6 @@ srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy), bias
 **TODO: Finish writing out the following**  
 **- with bootstrapSR(), method=“best” is default and select based only
 on likelihood(?) Discuss other options?**  
-**- with rlnormar1(), make sure to address bias.correct argument**  
 **- Describe option to input your own stock-recruitment parameters and
 errors**
 
