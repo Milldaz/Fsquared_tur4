@@ -25,8 +25,6 @@ library(FLSRTMB)  # to estimate SR parameters and add estimation uncertainty
 
 source("utilities_fsquared.R")
 
-mkdir("model")
-
 # LOAD stock assessment results, 'run' is output FLStock
 # if you have your own assessment load it, for simplicity rename the output
 # to "run", but can use other name, just make sure all calls to "run" 
@@ -45,18 +43,24 @@ srmodels <- c("segreg") # segreg, bevholt, ricker
 iy <- dims(run)$maxyear
 # Years to be used to compute SPR0 for stock-recruitment model, last 5
 spryrs <- seq(iy - 5, iy)
+# Data lag 
+dl <- 2
+# Management lag
+ml <- 1 
+# Assessment frequency
+af <- 1
 # Data year
-dy <- iy - 1
+dy <- iy - dl
 # Final year
 fy <- iy + 50
-# Probability years
+# Years to compute probability metrics
 pys <- seq(fy - 5, fy)
 # How many years from the past to condition the future
 conditioning_ny <- 5
 # CV for SSB to add uncertainty in the shortcut estimator
-bcv_sa <- 0.1
+bcv_sa <- 0.5
 # CV for F to add uncertainty in the shortcut estimator
-fcv_sa <- 0.1
+fcv_sa <- 0.5
 # Years for geometric mean in short term forecast
 recyrs_mp <- -2
 # TODO: Blim and Btrigger
@@ -68,7 +72,7 @@ cores <- round(availableCores() * 0.6)
 # TODO: F search grid
 fg_mp <- seq(0, 1.5, length=cores)
 # Number of iterations (minimum of 50 for testing, 500 for final)
-it <- 25
+it <- cores
 # it <- max(25, cores * 25)
 # Random seed
 set.seed(987)
@@ -93,7 +97,7 @@ options(doFuture.rng.onMisuse="ignore")
 
 # BOOTSTRAP and SELECT model by largest logLik
 srpars <- bootstrapSR(run, iters=it, spr0=mean(spr0y(run)[, ac(spryrs)]),
-  models=srmodels)
+  models=srmodels, verbose=FALSE)
 
 # GENERATE future deviances: lognormal autocorrelated
 srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy),
@@ -134,7 +138,7 @@ plot(dt0, type="l", main="Inter-annual changes in biomass")
 #===============================================================================
 
 # SET intermediate year + start of runs, lags and frequency
-mseargs <- list(iy=iy, fy=fy, data_lag=1, management_lag=1, frq=1) #link to setup
+mseargs <- list(iy=iy, fy=fy, data_lag=dl, management_lag=ml, frq=af)
 
 # SET shortcut estimator uncertainty: F and SSB deviances and auto-correlation
 # Note your SSB deviances and auto-correlation have very little impact on the P(SB<Blim)
