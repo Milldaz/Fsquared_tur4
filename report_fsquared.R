@@ -29,7 +29,7 @@ dat <- performance(fgrid)[, .(data=mean(data)), by=.(mp)]
 
 ggplot(dat, aes(x=mp, y=data)) +
   geom_point() +
-  scale_x_discrete(name="F", labels=seq(0, 1.5, length=10)[c(TRUE, FALSE)],
+  scale_x_discrete(name="F", labels=fg_mp,
     breaks=function(x) x[c(TRUE, FALSE)]) +
     ggtitle("Average probability of SSB falling below Blim over selected years by F level") +
    geom_hline(yintercept = 0.05, linewidth = 0.5, linetype = "dashed", color="gray50")
@@ -37,6 +37,9 @@ ggplot(dat, aes(x=mp, y=data)) +
 # PLOT TOs for tune: C ~ IACC, PBlim, riosk2, Pbtrigger
 
 plotTOs(performance(tune), x="C", y=c("IACC", "PBlim", "risk2", "PBtrigger")) +
+  theme(legend.position="none")
+
+plotTOs(performance(tune), x="F", y=c("IACC", "PBlim", "risk2", "PBtrigger")) +
   theme(legend.position="none")
 
 # }}}

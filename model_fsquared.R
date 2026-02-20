@@ -31,6 +31,11 @@ source("utilities_fsquared.R")
 # are updated
 load("model/model.rda")
 
+#DM Clean up FLstock object
+# has NAs in landings and discard wts, but not in catch weights (and there are zero discards in the assessment)
+landings.wt(run) <- catch.wt(run)
+discards.wt(run) <- catch.wt(run)
+
 #===============================================================================
 # SETUP
 #===============================================================================
@@ -52,9 +57,9 @@ af <- 1
 # Data year
 dy <- iy - dl
 # Final year
-fy <- iy + 50
+fy <- iy + 40 #DM changed after check on stable biomass below
 # Years to compute probability metrics
-pys <- seq(fy - 5, fy)
+pys <- seq(fy - 9, fy) #DM changed to last ten years
 # How many years from the past to condition the future
 conditioning_ny <- 5
 # CV for SSB to add uncertainty in the shortcut estimator
@@ -64,15 +69,17 @@ fcv_sa <- 0.5
 # Years for geometric mean in short term forecast
 recyrs_mp <- -2
 # TODO: Blim and Btrigger
-Blim <- 788
-Btrigger <- 1095
+Blim <- 3631
+Btrigger <- 5046
 refpts <- FLPar(c(Blim = Blim, Btrigger = Btrigger))
 # TODO: no. of cores to use in parallel, defauls to 2/3 of those in machine
 cores <- round(availableCores() * 0.6)
 # TODO: F search grid
-fg_mp <- seq(0, 1.5, length=cores)
+#DM fg_mp <- seq(0, 1.5, length=cores)
+fg_mp <- seq(0, 1.5, by=0.01)
 # Number of iterations (minimum of 50 for testing, 500 for final)
-it <- cores
+#DM it <- cores
+it <- 50
 # it <- max(25, cores * 25)
 # Random seed
 set.seed(987)
@@ -153,7 +160,7 @@ arule <- mpCtrl(
 
   # hcr: hockeystick (fbar ~ ssb | lim, trigger, target, min)
   hcr = mseCtrl(method=hockeystick.hcr,
-    args=list(lim=0, trigger=refpts(om)$Btrigger, target=0.22, min=0,
+    args=list(lim=0, trigger=refpts(om)$Btrigger, target=0.386, min=0,   #DM had to replace 0.22 with 0.386, but should be with refpts(om)$Fmsy (not defined yet)
     metric="ssb", output="fbar")),
 
   # (i)mplementation (sys)tem: tac.is (C ~ F)
