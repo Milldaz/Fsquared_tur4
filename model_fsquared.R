@@ -1,4 +1,4 @@
-# model_fsquared.R - runs Fsquared search for Ftarget
+# model_fsquared.R - runs steps to estimate ICES ref pts using Fsquared
 # Fsquared/model_fsquared.R
 
 #===============================================================================
@@ -15,10 +15,10 @@
 # Distributed under the terms of the EUPL 1.2
 #===============================================================================
 
-# What version of R is needed?
-#4.33 does not work with mse library
-#4.5.2 works
+# Clean start
+rm(list=ls())
 
+# Tested using R version 4.5.2
 # load libraries
 library(TAF)
 library(mse)
@@ -29,6 +29,7 @@ library(FLSRTMB)  # to estimate SR parameters and add estimation uncertainty
 # Check correct versions are installed:
 check.software(full=TRUE)
 
+# Load performance stats function
 source("utilities_fsquared.R")
 
 # LOAD stock assessment results, 'run' is output FLStock
@@ -36,11 +37,29 @@ source("utilities_fsquared.R")
 # to "run", but can use other name, just make sure all calls to "run" 
 # are updated
 load("model/model.rda")
+# rename
+run <- stk_fit; rm(stk_fit)
 
-#DM Clean up FLstock object
-# has NAs in landings and discard wts, but not in catch weights (and there are zero discards in the assessment)
-landings.wt(run) <- catch.wt(run)
-discards.wt(run) <- catch.wt(run)
+#DM Check FLstock object
+# Check for NAs in ns and wts etc.
+catch(run)
+catch.n(run)
+catch.wt(run)
+discards(run)
+discards.n(run)
+discards.wt(run)
+landings(run)
+landings.n(run)
+landings.wt(run)
+stock(run)
+stock.n(run)
+stock.wt(run)
+m(run)
+mat(run)
+harvest(run)
+# trim back to 2024 (no 2025 catch info), add stock name
+#run <- trim(run, year=1978:2024)
+name(run) <- "whg.27.47d"
 
 #===============================================================================
 # SETUP
@@ -49,7 +68,7 @@ discards.wt(run) <- catch.wt(run)
 # Name of the stock
 stkname <- name(run)
 # TODO: Recruitment models to be used in the OM conditioning
-srmodels <- c("segreg","bevholt") # segreg, bevholt, ricker
+srmodels <- c("segreg") # segreg, bevholt, ricker
 # Initial year of projections
 iy <- dims(run)$maxyear
 # Years to be used to compute SPR0 for stock-recruitment model, last 5
@@ -63,7 +82,7 @@ af <- 1
 # Data year
 dy <- iy - dl
 # Final year
-fy <- iy + 40 #DM changed after check on stable biomass below
+fy <- iy + 30 #DM changed after check on stable biomass below
 # Years to compute probability metrics
 pys <- seq(fy - 9, fy) #DM changed to last ten years
 # How many years from the past to condition the future
@@ -73,17 +92,18 @@ bcv_sa <- 0.5
 # CV for F to add uncertainty in the shortcut estimator
 fcv_sa <- 0.5
 # Years for geometric mean in short term forecast
-recyrs_mp <- -2
+recyrs_mp <- -40
 # TODO: Blim and Btrigger
-Blim <- 3631
-Btrigger <- 5046
-refpts <- FLPar(c(Blim = Blim, Btrigger = Btrigger))
+Blim <- 150477
+Btrigger <- 209100
+refpts <- FLPar(c(Blim = Blim, Btrigger = Btrigger, Fmsy = NA))  #DM added Fmsy
 # TODO: no. of cores to use in parallel, defauls to 2/3 of those in machine
 cores <- round(availableCores() * 0.6)
 # TODO: F search grid
 #DM Start with rough grid, then fine tune
-fg_mp <- seq(0, 1.5, length=cores)
+#fg_mp <- seq(0.25, 0.70, length=cores)
 #fg_mp <- seq(0.1, 0.5, by=0.01)
+fg_mp <- seq(0.23, 0.70, length=6*cores)
 # Number of iterations (minimum of 50 for testing, 500 for final)
 #DM it <- cores
 it <- 50
@@ -158,6 +178,22 @@ mseargs <- list(iy=iy, fy=fy, data_lag=dl, management_lag=ml, frq=af)
 # Note your SSB deviances and auto-correlation have very little impact on the P(SB<Blim)
 sdevs <- shortcut_devs(om, SSBcv=bcv_sa, Fcv=fcv_sa, Fphi=0)
 
+# SETUP constant F rule
+frule <- mpCtrl(
+  
+  # (est)imation method: shortcut.sa + SSB deviances
+  est = mseCtrl(method=shortcut.sa,
+                args=list(SSBdevs=sdevs$SSB)),
+  
+  # hcr: constant F (Btrigger=0)
+  hcr = mseCtrl(method=hockeystick.hcr,
+                args=list(lim=0, trigger=0, target=refpts(om)$Fmsy, min=0,   #DM should be with refpts(om)$Fmsy (not defined yet)
+                          metric="ssb", output="fbar")),
+  
+  # (i)mplementation (sys)tem: tac.is (C ~ F)
+  isys = mseCtrl(method=tac.is, args=list(recyrs=recyrs_mp, Fdevs=sdevs$F))
+)
+
 # SETUP standard ICES advice rule
 arule <- mpCtrl(
 
@@ -167,7 +203,7 @@ arule <- mpCtrl(
 
   # hcr: hockeystick (fbar ~ ssb | lim, trigger, target, min)
   hcr = mseCtrl(method=hockeystick.hcr,
-    args=list(lim=0, trigger=refpts(om)$Btrigger, target=0.386, min=0,   #DM had to replace 0.22 with 0.386, but should be with refpts(om)$Fmsy (not defined yet)
+    args=list(lim=0, trigger=refpts(om)$Btrigger, target=refpts(om)$Fmsy, min=0,   #DM refpts(om)$Fmsy (not defined yet)
     metric="ssb", output="fbar")),
 
   # (i)mplementation (sys)tem: tac.is (C ~ F)
@@ -178,22 +214,29 @@ arule <- mpCtrl(
 # Run simulations
 #===============================================================================
 
-# RUN over Ftarget grid
-fgrid <- mps(om, ctrl=arule, args=mseargs, hcr=list(target=fg_mp),
-  names=paste0("F", fg_mp))
-
+# RUN constant F rule over Ftarget grid
+fgrid <- mps(om, ctrl=frule, args=mseargs, hcr=list(target=fg_mp),
+             names=paste0("F", fg_mp))
 # PLOT
 plot(om, fgrid)
-
 # COMPUTE average performance over pys
 performance(fgrid) <- performance(fgrid, statistics=icestats["PBlim"], year=pys,
-  type="arule")
+                                  type="frule")
 
 # OR ... RUN over Ftarget grid and return only performance stats
-# fgrid <- mps(om, ctrl=arule, args=mseargs, hcr=list(target=fg_mp),
-#   names=paste("F" fg_mp), statistics=icestats, type="arule")
+fgridstat <- mps(om, ctrl=frule, args=mseargs, hcr=list(target=fg_mp),
+             names=paste0("F", fg_mp), statistics=icestats, type="frule")
 
-# FIND Ftarget that gives mean P(B < Blim) = 5%
+# RUN ICES advice rule over Ftarget grid
+#hcrfgrid <- mps(om, ctrl=arule, args=mseargs, hcr=list(target=fg_mp),
+#  names=paste0("F", fg_mp))
+# PLOT
+#plot(om, hcrfgrid)
+# COMPUTE average performance over pys
+#performance(hcrfgrid) <- performance(hcrfgrid, statistics=icestats["PBlim"], year=pys,
+#  type="arule")
+
+# FIND Fpa: Ftarget that gives mean P(B < Blim) = 5%
 tune <- tunebisect(om, control=arule, args=mseargs,
   tune=list(target=0.3 * c(0.5, 1.5)),
   statistic=icestats["PBlim"], prob=0.05, tol=0.005, years=pys)
@@ -204,9 +247,9 @@ plot(om, tune)
 # COMPUTE performance
 performance(tune) <- performance(tune, statistics=icestats, type="arule", run="tune")
 
-# CHECK Ftarget value
+# CHECK Fpa value
 args(control(tune, "hcr"))$target
 
 # SAVE
-save("fgrid", "om", "tune", file="model/fsquared.rda")
+save("fgrid", "fgridstat","om", "tune", file="model/fsquared.rda")
 

@@ -62,3 +62,8 @@ icestats <- list(
 )
 
 # }}}
+
+### Define new stock recruit relationships
+## determine segreg model with Blim breakpoint and (roughly) geomean rec above this
+segregBlim  <- function(ab, ssb) log(ifelse(ssb >= Blim, ab$a * Blim, ab$a * ssb))
+
