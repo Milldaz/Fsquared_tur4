@@ -15,13 +15,19 @@
 # Distributed under the terms of the EUPL 1.2
 #===============================================================================
 
-# load libraries
+# What version of R is needed?
+#4.33 does not work with mse library
+#4.5.2 works
 
+# load libraries
 library(TAF)
 library(mse)
 library(msemodules)
 library(FLasher)
 library(FLSRTMB)  # to estimate SR parameters and add estimation uncertainty
+
+# Check correct versions are installed:
+check.software(full=TRUE)
 
 source("utilities_fsquared.R")
 
@@ -43,7 +49,7 @@ discards.wt(run) <- catch.wt(run)
 # Name of the stock
 stkname <- name(run)
 # TODO: Recruitment models to be used in the OM conditioning
-srmodels <- c("segreg") # segreg, bevholt, ricker
+srmodels <- c("segreg","bevholt") # segreg, bevholt, ricker
 # Initial year of projections
 iy <- dims(run)$maxyear
 # Years to be used to compute SPR0 for stock-recruitment model, last 5
@@ -75,8 +81,9 @@ refpts <- FLPar(c(Blim = Blim, Btrigger = Btrigger))
 # TODO: no. of cores to use in parallel, defauls to 2/3 of those in machine
 cores <- round(availableCores() * 0.6)
 # TODO: F search grid
-#DM fg_mp <- seq(0, 1.5, length=cores)
-fg_mp <- seq(0, 1.5, by=0.01)
+#DM Start with rough grid, then fine tune
+fg_mp <- seq(0, 1.5, length=cores)
+#fg_mp <- seq(0.1, 0.5, by=0.01)
 # Number of iterations (minimum of 50 for testing, 500 for final)
 #DM it <- cores
 it <- 50
