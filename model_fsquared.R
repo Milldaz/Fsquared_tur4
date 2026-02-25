@@ -146,6 +146,7 @@ srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy),
 
 #DM need to be able to implement segreg with a specified breakpoint (e.g. Blim or Bloss)
 #DM Need plots of SR (and spread of deviances)
+#DM what was wrong with eqsr, which had both of the above?
 
 # BUILD FLom, OM FLR object
 om <- FLom(stock=propagate(run, it), refpts=refpts, model=srmodels,  #DM should be srmodels not "segreg"
