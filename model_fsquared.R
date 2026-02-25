@@ -39,39 +39,38 @@ source("utilities_fsquared.R")
 load("model/model.rda")
 # rename
 run <- stk_fit; rm(stk_fit)
-
 #DM Check FLstock object
 # Check for NAs in ns and wts etc.
-catch(run)
-catch.n(run)
-catch.wt(run)
-discards(run)
-discards.n(run)
-discards.wt(run)
-landings(run)
-landings.n(run)
-landings.wt(run)
-stock(run)
-stock.n(run)
-stock.wt(run)
-m(run)
-mat(run)
-harvest(run)
-# trim back to 2024 (no 2025 catch info), add stock name
+# catch(run)
+# catch.n(run)
+# catch.wt(run)
+# discards(run)
+# discards.n(run)
+# discards.wt(run)
+# landings(run)
+# landings.n(run)
+# landings.wt(run)
+# stock(run)
+# stock.n(run)
+# stock.wt(run)
+# m(run)
+# mat(run)
+# harvest(run)
+# trim back to 2024 (no 2025 catch info)?, add stock name
 #run <- trim(run, year=1978:2024)
 name(run) <- "whg.27.47d"
 
 #===============================================================================
-# SETUP
+# SETUP  #DM when all changes implement, reorganise so all settings that users need to specify are at the start, with no later changes needed
 #===============================================================================
 
-# Name of the stock
+# Name of the stock  #DM Should also have a run name to allow users to test different settings and save results
 stkname <- name(run)
 # TODO: Recruitment models to be used in the OM conditioning
 srmodels <- c("segreg") # segreg, bevholt, ricker
 # Initial year of projections
 iy <- dims(run)$maxyear
-# Years to be used to compute SPR0 for stock-recruitment model, last 5
+# Years to be used to compute SPR0 for stock-recruitment model, last 5  #DM Need some explanation here
 spryrs <- seq(iy - 5, iy)
 # Data lag 
 dl <- 2
@@ -82,31 +81,40 @@ af <- 1
 # Data year
 dy <- iy - dl
 # Final year
-fy <- iy + 30 #DM changed after check on stable biomass below
+fy <- iy + 30 #DM useful check on stable biomass below, but maybe need some guidance on minimum period (e.g. 1-2 x lifespan + summary period length)
 # Years to compute probability metrics
-pys <- seq(fy - 9, fy) #DM changed to last ten years
+pys <- seq(fy - 9, fy) #DM changed to last ten years (was 6). Need ACOM decision on best practice
 # How many years from the past to condition the future
-conditioning_ny <- 5
+conditioning_ny <- 5 #DM In EQSIm have bio and sel separate 
+#DM Currently only average used as a constant for whole forecast period. Add resample option?
+
 # CV for SSB to add uncertainty in the shortcut estimator
-bcv_sa <- 0.5
+bcv_sa <- 0.5 #DM Need informed defaults and ways to estimate this for specific stocks. How does this interact with management/data lag?
 # CV for F to add uncertainty in the shortcut estimator
-fcv_sa <- 0.5
+fcv_sa <- 0.5 #DM EQSIm is 0.243 default. Need informed defaults and ways to estimate this for specific stocks.  How does this interact with management/data lag?
+Fphi_sa <- 0 #DM added parameter here instead of hardwiring 0 later in the code. Shouldn't be zero.
 # Years for geometric mean in short term forecast
-recyrs_mp <- -40
+recyrs_mp <- -40 #DM need alternatives (e.g. whole time series)
+
 # TODO: Blim and Btrigger
+#DM add a section for Blim and Bpa estimation
+#DM Add spasmodic test in the code 
+#DM Add Bemp estimation
 Blim <- 150477
-Btrigger <- 209100
+Btrigger <- 209100 #DM Need to be able to compare Bpa with 5th percentile of SSB at Fmsy
 refpts <- FLPar(c(Blim = Blim, Btrigger = Btrigger, Fmsy = NA))  #DM added Fmsy
+
+
 # TODO: no. of cores to use in parallel, defauls to 2/3 of those in machine
 cores <- round(availableCores() * 0.6)
-# TODO: F search grid
+# TODO: F search grid  #DM this will need to be done in steps, starting broad then finetuning around Fmsy (steps of 0.01)
 #DM Start with rough grid, then fine tune
 #fg_mp <- seq(0.25, 0.70, length=cores)
 #fg_mp <- seq(0.1, 0.5, by=0.01)
-fg_mp <- seq(0.23, 0.70, length=6*cores)
+fg_mp <- seq(0.23, 0.78, length=7*cores)
 # Number of iterations (minimum of 50 for testing, 500 for final)
 #DM it <- cores
-it <- 50
+it <- 104 #Simualtion time is long, so use a few for initial work, but run final using a lot more (need ACOM guidance)
 # it <- max(25, cores * 25)
 # Random seed
 set.seed(987)
@@ -117,7 +125,6 @@ if(os.linux()) {
 } else {
   plan(multisession, workers=cores)
 }
-
 options(doFuture.rng.onMisuse="ignore")
 
 #===============================================================================
@@ -125,7 +132,7 @@ options(doFuture.rng.onMisuse="ignore")
 #===============================================================================
 
 # Stock-recruitment relationship(s)
-# The file utilities_fsquared.R has code examples to condition the OM
+# The file utilities_fsquared.R has code examples to condition the OM #DM it does not
 # using stock recruitment parameters estimated by the stock assessment
 # model, like SS3, SAM and a4a.
 
@@ -137,8 +144,11 @@ srpars <- bootstrapSR(run, iters=it, spr0=mean(spr0y(run)[, ac(spryrs)]),
 srdevs <- rlnormar1(sdlog=srpars$sigmaR, rho=srpars$rho, years=seq(dy, fy),
   bias.correct=FALSE)
 
+#DM need to be able to implement segreg with a specified breakpoint (e.g. Blim or Bloss)
+#DM Need plots of SR (and spread of deviances)
+
 # BUILD FLom, OM FLR object
-om <- FLom(stock=propagate(run, it), refpts=refpts, model="segreg",
+om <- FLom(stock=propagate(run, it), refpts=refpts, model=srmodels,  #DM should be srmodels not "segreg"
   params=srpars, deviances=srdevs, name=stkname)
 
 # TODO: SETUP om future: average of most recent years set by conditioning_ny
@@ -175,8 +185,8 @@ plot(dt0, type="l", main="Inter-annual changes in biomass")
 mseargs <- list(iy=iy, fy=fy, data_lag=dl, management_lag=ml, frq=af)
 
 # SET shortcut estimator uncertainty: F and SSB deviances and auto-correlation
-# Note your SSB deviances and auto-correlation have very little impact on the P(SB<Blim)
-sdevs <- shortcut_devs(om, SSBcv=bcv_sa, Fcv=fcv_sa, Fphi=0)
+# Note your SSB deviances and auto-correlation have very little impact on the P(SB<Blim) #DM not universally true
+sdevs <- shortcut_devs(om, SSBcv=bcv_sa, Fcv=fcv_sa, Fphi=Fphi_sa)  #DM added Fphi_sa here
 
 # SETUP constant F rule
 frule <- mpCtrl(
@@ -223,23 +233,41 @@ plot(om, fgrid)
 performance(fgrid) <- performance(fgrid, statistics=icestats["PBlim"], year=pys,
                                   type="frule")
 
-# OR ... RUN over Ftarget grid and return only performance stats
-fgridstat <- mps(om, ctrl=frule, args=mseargs, hcr=list(target=fg_mp),
-             names=paste0("F", fg_mp), statistics=icestats, type="frule")
+#DM Need to extract Fmsy, Flow and Fupper (i.e. 95% of max yield) from fgrid 
 
-# RUN ICES advice rule over Ftarget grid
-#hcrfgrid <- mps(om, ctrl=arule, args=mseargs, hcr=list(target=fg_mp),
-#  names=paste0("F", fg_mp))
+medC_conF <- performance(fgrid, statistics=icestats["medC"], year=pys, type="frule")
+aggregate(data ~ run, data = medC_conF, FUN = median, na.rm = TRUE)
+
+meanC_conF <- performance(fgrid, statistics=icestats["meanC"], year=pys, type="frule")
+aggregate(data ~ run, data = meanC_conF, FUN = mean, na.rm = TRUE)
+
+# OR ... RUN over Ftarget grid and return only performance stats
+#fgridstat <- mps(om, ctrl=frule, args=mseargs, hcr=list(target=fg_mp),
+#             names=paste0("F", fg_mp), statistics=icestats, type="frule")
+
+# RUN ICES advice rule over Ftarget grid #DM not sure this is needed for all of fg_mp (probably just Fmsy)
+hcrfgrid <- mps(om, ctrl=arule, args=mseargs, hcr=list(target=fg_mp),
+  names=paste0("F", fg_mp))
 # PLOT
-#plot(om, hcrfgrid)
+plot(om, hcrfgrid)
 # COMPUTE average performance over pys
-#performance(hcrfgrid) <- performance(hcrfgrid, statistics=icestats["PBlim"], year=pys,
-#  type="arule")
+performance(hcrfgrid) <- performance(hcrfgrid, statistics=icestats["PBlim"], year=pys,
+  type="arule")
+
+#DM Need to extract 5th percentile of from hcrfgrid (technically shoul dcome form a run with assessment error, check with ACOM)
+
+medC_AR <- performance(hcrfgrid, statistics=icestats["medC"], year=pys, type="arule")
+aggregate(data ~ run, data = medC_AR, FUN = median, na.rm = TRUE)
+
+meanC_AR <- performance(hcrfgrid, statistics=icestats["meanC"], year=pys, type="arule")
+aggregate(data ~ run, data = meanC_AR, FUN = mean, na.rm = TRUE)
+
 
 # FIND Fpa: Ftarget that gives mean P(B < Blim) = 5%
 tune <- tunebisect(om, control=arule, args=mseargs,
-  tune=list(target=0.3 * c(0.5, 1.5)),
+  tune=list(target=0.3 * c(0.5, 1.5)),  #DM change to range around Fmsy estimated above?
   statistic=icestats["PBlim"], prob=0.05, tol=0.005, years=pys)
+#DM - this is the quickest way to get Fpa, but need to think about default settings
 
 # PLOT
 plot(om, tune)
@@ -251,5 +279,8 @@ performance(tune) <- performance(tune, statistics=icestats, type="arule", run="t
 args(control(tune, "hcr"))$target
 
 # SAVE
-save("fgrid", "fgridstat","om", "tune", file="model/fsquared.rda")
+#save("fgrid", "hcrfgrid","om", "tune", file="model/fsquared.rda")
+save("fgrid", "fgridstat","hcrfgrid","om", "tune", file="model/fsquared.rda")
+
+
 

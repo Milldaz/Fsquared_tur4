@@ -11,6 +11,14 @@ icestats <- list(
   C=list(~C, name="Catch (t)",
     desc="Catch inn tonnes"),
 
+  # mean(C)
+  meanC=list(~iterMeans(C), name="mean(C)",
+           desc="Mean catch"),
+  
+  # med(C)
+  medC=list(~iterMedians(C), name="med(C)",
+           desc="Median catch"),
+  
   # L
   L=list(~L, name="Landings (t)",
     desc="Landings in tonnes"),
